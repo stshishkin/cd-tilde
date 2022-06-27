@@ -1,21 +1,21 @@
 resource "openstack_compute_keypair_v2" "key_tf" {
-  name       = "key_tf"
+  name       = "key_tf-${var.telegram-chat}"
   region     = var.region
   public_key = file("~/.ssh/id_rsa.pub")
 }
 
 resource "openstack_networking_router_v2" "router_tf" {
-  name                = "router_tf"
+  name                = "router_tf-${var.telegram-chat}"
   external_network_id = data.openstack_networking_network_v2.external_net.id
 }
 
 resource "openstack_networking_network_v2" "network_tf" {
-  name = "network_tf"
+  name = "network_tf-${var.telegram-chat}"
 }
 
 resource "openstack_networking_subnet_v2" "subnet_tf" {
   network_id = openstack_networking_network_v2.network_tf.id
-  name       = "subnet_tf"
+  name       = "subnet_tf-${var.telegram-chat}"
   cidr       = var.subnet_cidr
 }
 
@@ -30,7 +30,7 @@ resource "random_string" "random_name_server" {
 }
 
 resource "openstack_compute_flavor_v2" "flavor_server" {
-  name      = "server-${random_string.random_name_server.result}"
+  name      = "server-${random_string.random_name_server.result}-${var.telegram-chat}"
   ram       = "512"
   vcpus     = "1"
   disk      = "0"
@@ -38,7 +38,7 @@ resource "openstack_compute_flavor_v2" "flavor_server" {
 }
 
 resource "openstack_blockstorage_volume_v3" "volume_server" {
-  name                 = "volume-for-server1"
+  name                 = "volume-for-server1-${var.telegram-chat}"
   size                 = "5"
   image_id             = data.openstack_images_image_v2.ubuntu_image.id
   volume_type          = var.volume_type
@@ -50,7 +50,7 @@ resource "openstack_blockstorage_volume_v3" "volume_server" {
 }
 
 resource "openstack_compute_instance_v2" "server_tf" {
-  name              = "server_tf"
+  name              = "server_tf-${var.telegram-chat}"
   flavor_id         = openstack_compute_flavor_v2.flavor_server.id
   key_pair          = openstack_compute_keypair_v2.key_tf.id
   availability_zone = var.az_zone
