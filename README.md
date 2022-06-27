@@ -13,9 +13,24 @@ openstack-user     = "user" # credentials of cloud platform project for openstac
 openstack-pass     = "pA55w0rd"
 selectel-api-token = "AbCdEfGhIjKlMnOpQrStUvWxYz012345" # API Key (creates in Setings of Control Panel)
 telegram-bot-token = "123456789:AbCdEfGhIjKlMnOpQrStUvWxYz012345678" # bot token 
-telegram-chat      = "100123456"
 ```
 3. run `terraform init` to initialize terraform providers
 4. run `terraform apply` create everything
 5. enjoy your new VPN that costs 1,36 ₽/hour
 6. run `terraform destroy` when no longer needed
+7. Creates your own file bot/configs.json that contains config for telefram bot
+```JSON
+{
+ "bot_api": "https://api.telegram.org/bot",
+ "api_key": "123456789:AbCdEfGhIjKlMnOpQrStUvWxYz012345678",
+ "update_configs": {
+  "limit": 100,
+  "timeout": 0,
+  "update_freq": 300000000
+ },
+ "webhook": false,
+ "log_file": "STDOUT",
+ "blocked_users": null
+}
+```
+8. run `go run .` from bot/ directory
