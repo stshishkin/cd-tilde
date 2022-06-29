@@ -12,6 +12,7 @@ import (
 )
 
 var bot *bt.Bot
+var clocks [12]string
 
 func main() {
 	cf, _ := cfg.Load()
@@ -34,122 +35,180 @@ func main() {
 	}
 
 }
+func call_on(chat int, from string) {
+	clocks := [12]string{"🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"}
+	kb := bot.CreateInlineKeyboard()
+	kb.AddCallbackButton(clocks[0], "callback data 1", 1)
+	msg, err := bot.AdvancedMode().ASendMessage(chat, "00:00", "", 0, false, false, nil, false, false, kb)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	editor := bot.GetMsgEditor(chat)
+	s := 1
+	start := time.Now().Unix()
+	cmd := exec.Command("terraform", "apply", "-var=telegram-chat="+from, "-input=false", "-auto-approve", "-state="+from+".tfstate")
+	cmd.Dir = ".."
+
+	err = cmd.Start()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	go func() {
+		err = cmd.Wait()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}()
+
+	for {
+		process, err := os.FindProcess(cmd.Process.Pid)
+		if err != nil {
+			fmt.Printf("Failed to find process: %s\n", err)
+			break
+		}
+
+		err = process.Signal(syscall.Signal(0))
+		if err != nil && err.Error() == "os: process already finished" {
+			fmt.Printf("process.Signal on pid %d returned: '%v'\n", cmd.Process.Pid, err)
+			break
+		} else {
+			kb = bot.CreateInlineKeyboard()
+			kb.AddCallbackButton(clocks[s%len(clocks)], "callback data 1", 1)
+			_, err1 := editor.EditText(msg.Result.MessageId, fmt.Sprintf("%02d:%02d", s/60, s%60), "", "", nil, false, kb)
+			if err1 != nil {
+				fmt.Println(err1)
+			}
+			time.Sleep(1 * time.Second)
+			s++
+		}
+	}
+
+	editor.DeleteMessage(msg.Result.MessageId)
+	kb0 := bot.CreateKeyboard(false, true, false, "")
+
+	kb0.AddButton("Off", 1)
+
+	msg, err = bot.AdvancedMode().ASendMessage(chat, "00:00", "", 0, false, false, nil, false, false, kb0)
+	if err != nil {
+		fmt.Println(err)
+	}
+	// editor.DeleteMessage(msg.Result.MessageId)
+
+	kb = bot.CreateInlineKeyboard()
+	kb.AddCallbackButton(clocks[s%len(clocks)], "callback data 1", 1)
+	msg, err = bot.AdvancedMode().ASendMessage(chat, "00:00", "", 0, false, false, nil, false, false, kb)
+	if err != nil {
+		fmt.Println(err)
+	}
+	s = 60 - int(time.Now().Unix()-start) //3600 -
+	// fmt.Println(fmt.Sprintf("%02d", s))
+	for {
+		_, err1 := editor.EditText(msg.Result.MessageId, fmt.Sprintf("%02d:%02d", s/60, s%60), "", "", nil, false, kb)
+		if err1 != nil {
+			fmt.Println(err1)
+		}
+		time.Sleep(1 * time.Second)
+		s--
+		if s < 0 {
+			break
+		}
+	}
+}
+func call_off(chat int, from string) {
+	clocks := [12]string{"🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"}
+	// TODO: add delete sended file
+	kb := bot.CreateInlineKeyboard()
+	kb.AddCallbackButton(clocks[0], "callback data 1", 1)
+	msg, err := bot.AdvancedMode().ASendMessage(chat, "00:00", "", 0, false, false, nil, false, false, kb)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	editor := bot.GetMsgEditor(chat)
+	s := 1
+
+	cmd := exec.Command("terraform", "destroy", "-var=telegram-chat="+from, "-input=false", "-auto-approve", "-state="+from+".tfstate")
+	cmd.Dir = ".."
+
+	err = cmd.Start()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	go func() {
+		err = cmd.Wait()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}()
+
+	for {
+		process, err := os.FindProcess(cmd.Process.Pid)
+		if err != nil {
+			fmt.Printf("Failed to find process: %s\n", err)
+			break
+		}
+
+		err = process.Signal(syscall.Signal(0))
+		if err != nil && err.Error() == "os: process already finished" {
+			fmt.Printf("process.Signal on pid %d returned: '%v'\n", cmd.Process.Pid, err)
+			break
+		} else {
+			kb = bot.CreateInlineKeyboard()
+			kb.AddCallbackButton(clocks[s%len(clocks)], "callback data 1", 1)
+			_, err1 := editor.EditText(msg.Result.MessageId, fmt.Sprintf("%02d:%02d", s/60, s%60), "", "", nil, false, kb)
+			if err1 != nil {
+				fmt.Println(err1)
+			}
+			time.Sleep(1 * time.Second)
+			s++
+		}
+	}
+
+	editor.DeleteMessage(msg.Result.MessageId)
+	kb0 := bot.CreateKeyboard(false, true, false, "")
+
+	kb0.AddButton("On", 1)
+
+	_, err = bot.AdvancedMode().ASendMessage(chat, "00:00", "", 0, false, false, nil, false, false, kb0)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
 
 func start() {
-	clocks := [12]string{"🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"}
-
+	on := 0
+	off := 0
 	messageChannel, _ := bot.AdvancedMode().RegisterChannel("", "message")
 
-	kb := bot.CreateKeyboard(false, false, false, "")
-
-	kb.AddButton("On", 1)
 	for {
 		up := <-*messageChannel
 		from := fmt.Sprintf("%d", up.Message.From.Id)
+		if up.Message.Text == "/start" {
 
-		if up.Message.Text == "/on" {
+			kb := bot.CreateKeyboard(false, true, false, "")
 
-			kb := bot.CreateInlineKeyboard()
-			kb.AddCallbackButton(clocks[0], "callback data 1", 1)
-			msg, err := bot.AdvancedMode().ASendMessage(up.Message.Chat.Id, "00:00", "", 0, false, false, nil, false, false, kb)
+			kb.AddButton("On", 1)
+
+			_, err := bot.AdvancedMode().ASendMessage(up.Message.Chat.Id, "00:00", "", 0, false, false, nil, false, false, kb)
 			if err != nil {
 				fmt.Println(err)
 			}
-
-			editor := bot.GetMsgEditor(up.Message.Chat.Id)
-			s := 1
-
-			cmd := exec.Command("terraform", "apply", "-var=telegram-chat="+from, "-input=false", "-auto-approve", "-state="+from+".tfstate")
-			cmd.Dir = ".."
-
-			err = cmd.Start()
-			if err != nil {
-				fmt.Println(err)
+		} else if up.Message.Text == "On" {
+			if on == up.Message.From.Id {
+				continue
 			}
-
-			go func() {
-				err = cmd.Wait()
-				if err != nil {
-					fmt.Println(err)
-				}
-			}()
-
-			for {
-				process, err := os.FindProcess(cmd.Process.Pid)
-				if err != nil {
-					fmt.Printf("Failed to find process: %s\n", err)
-					break
-				}
-
-				err = process.Signal(syscall.Signal(0))
-				if err != nil && err.Error() == "os: process already finished" {
-					fmt.Printf("process.Signal on pid %d returned: '%v'\n", cmd.Process.Pid, err)
-					break
-				} else {
-					kb = bot.CreateInlineKeyboard()
-					kb.AddCallbackButton(clocks[s%len(clocks)], "callback data 1", 1)
-					_, err1 := editor.EditText(msg.Result.MessageId, fmt.Sprintf("%02d:%02d", s/60, s%60), "", "", nil, false, kb)
-					if err1 != nil {
-						fmt.Println(err1)
-					}
-					time.Sleep(1 * time.Second)
-					s++
-				}
+			on = up.Message.From.Id
+			call_on(up.Message.Chat.Id, from)
+		} else if up.Message.Text == "Off" {
+			fmt.Println("Off")
+			if off == up.Message.From.Id {
+				continue
 			}
-			editor.DeleteMessage(msg.Result.MessageId)
-		} else {
-			if up.Message.Text == "/off" {
-
-				// TODO: add delete sended file
-				kb := bot.CreateInlineKeyboard()
-				kb.AddCallbackButton(clocks[0], "callback data 1", 1)
-				msg, err := bot.AdvancedMode().ASendMessage(up.Message.Chat.Id, "00:00", "", 0, false, false, nil, false, false, kb)
-				if err != nil {
-					fmt.Println(err)
-				}
-
-				editor := bot.GetMsgEditor(up.Message.Chat.Id)
-				s := 1
-
-				cmd := exec.Command("terraform", "destroy", "-var=telegram-chat="+from, "-input=false", "-auto-approve", "-state="+from+".tfstate") //terraform apply -input=false -auto-approve
-				cmd.Dir = ".."
-
-				err = cmd.Start()
-				if err != nil {
-					fmt.Println(err)
-				}
-
-				go func() {
-					err = cmd.Wait()
-					if err != nil {
-						fmt.Println(err)
-					}
-				}()
-
-				for {
-					process, err := os.FindProcess(cmd.Process.Pid)
-					if err != nil {
-						fmt.Printf("Failed to find process: %s\n", err)
-						break
-					}
-
-					err = process.Signal(syscall.Signal(0))
-					if err != nil && err.Error() == "os: process already finished" {
-						fmt.Printf("process.Signal on pid %d returned: '%v'\n", cmd.Process.Pid, err)
-						break
-					} else {
-						kb = bot.CreateInlineKeyboard()
-						kb.AddCallbackButton(clocks[s%len(clocks)], "callback data 1", 1)
-						_, err1 := editor.EditText(msg.Result.MessageId, fmt.Sprintf("%02d:%02d", s/60, s%60), "", "", nil, false, kb)
-						if err1 != nil {
-							fmt.Println(err1)
-						}
-						time.Sleep(1 * time.Second)
-						s++
-					}
-				}
-				editor.DeleteMessage(msg.Result.MessageId)
-			}
+			off = up.Message.From.Id
+			call_off(up.Message.Chat.Id, from)
 		}
 
 		fmt.Println(up.Message.Text)
