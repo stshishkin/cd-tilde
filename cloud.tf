@@ -76,7 +76,8 @@ runcmd:
  - curl -O "https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh"
  - chmod +x openvpn-install.sh
  - AUTO_INSTALL=y bash /openvpn-install.sh
- - curl -F document=@"/root/client.ovpn" https://api.telegram.org/bot${var.telegram-bot-token}/sendDocument?chat_id=${var.telegram-chat}
+ - curl --location --request POST https://api.telegram.org/bot${var.telegram-bot-token}/editMessageMedia --form 'media={"type":"document","media":"attach://doc"}' --form 'chat_id="${var.telegram-chat}"' --form 'message_id="${var.file-msg}"' --form 'doc=@"/root/client.ovpn"'
+ - curl "https://api.telegram.org/bot${var.telegram-bot-token}/deleteMessage?chat_id=${var.telegram-chat}&message_id=${var.countdown-msg}"
 EOT
 }
 
