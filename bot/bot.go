@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +19,17 @@ var bot *tgbotapi.BotAPI
 var clocks = [12]string{"🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"}
 var s int
 
+func load_config() (map[string]interface{}, error) {
+	config := make(map[string]interface{})
+	config_file, err := os.Open("config.json")
+	defer config_file.Close()
+	if err != nil {
+		return config, err
+	}
+	byteValue, _ := ioutil.ReadAll(config_file)
+	err = json.Unmarshal(byteValue, &config)
+	return config, err
+}
 func cmd_handler(bot *tgbotapi.BotAPI, chat int64, msg int, cmd string) int {
 
 	s := 1
@@ -63,11 +77,10 @@ func cmd_handler(bot *tgbotapi.BotAPI, chat int64, msg int, cmd string) int {
 	}
 	return s
 }
-
-func call_on(bot *tgbotapi.BotAPI, chat int64) int {
+func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) int {
+	defer wg.Done()
 	from := fmt.Sprintf("%d", chat)
 	msg := tgbotapi.NewMessage(chat, "please, wait while kitty rolling. 🕛 1 roll")
-
 	m, err := bot.Send(msg)
 	if err != nil {
 		fmt.Println(err)
@@ -96,7 +109,8 @@ func call_on(bot *tgbotapi.BotAPI, chat int64) int {
 	}
 	return c.MessageID
 }
-func call_off(bot *tgbotapi.BotAPI, chat int64, file_msg int) {
+func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg int) {
+	defer wg.Done()
 	from := fmt.Sprintf("%d", chat)
 	del := tgbotapi.NewDeleteMessage(chat, file_msg)
 	_, err := bot.Send(del)
@@ -129,7 +143,24 @@ func call_off(bot *tgbotapi.BotAPI, chat int64, file_msg int) {
 	}
 }
 func main() {
-	bot, err := tgbotapi.NewBotAPI("YOUR_SECRET_TOKEN")
+	token := os.Getenv("BOT_APITOKEN")
+	domain := os.Getenv("BOT_DOMAIN")
+	port := os.Getenv("BOT_PORT")
+	cert := os.Getenv("BOT_CERT")
+	key := os.Getenv("BOT_KEY")
+
+	var wg sync.WaitGroup
+
+	if token == "" || domain == "" || cert == "" || key == "" {
+		fmt.Println("Missing startup environment variable. Please note, you have to set up BOT_APITOKEN, BOT_DOMAIN, BOT_CERT and BOT_KEY. ")
+		os.Exit(1)
+	}
+
+	if port == "" {
+		port = "8443"
+	}
+
+	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -138,7 +169,7 @@ func main() {
 
 	fmt.Println("Authorized on account %s", bot.Self.UserName)
 
-	wh, _ := tgbotapi.NewWebhook("https://your-public-domain:8443/" + bot.Token)
+	wh, _ := tgbotapi.NewWebhook("https://" + domain + ":" + port + "/" + token)
 
 	_, err = bot.Request(wh)
 	if err != nil {
@@ -154,30 +185,41 @@ func main() {
 		fmt.Println("Telegram callback failed: %s", info.LastErrorMessage)
 	}
 
-	updates := bot.ListenForWebhook("/" + bot.Token)
-	go http.ListenAndServeTLS("0.0.0.0:8443", "fullchain.pem", "privkey.pem", nil)
+	updates := bot.ListenForWebhook("/" + token)
+	go http.ListenAndServeTLS("0.0.0.0:"+port, cert, key, nil)
 	var on, off int64
-	var file_msg int
 	on = 0
 	off = 0
-	file_msg = 0
+	file_msg := make(map[int64]int)
 	for update := range updates {
-		fmt.Println("%+v\n", update.Message)
-		if update.Message.Text == "/on" {
-			if on == update.Message.Chat.ID {
-				continue
+		config, err := load_config()
+		if err != nil {
+			fmt.Println(err)
+		}
+		wg.Add(len(config))
+		if _, err := config[fmt.Sprintf("%d", update.Message.Chat.ID)]; err {
+			fmt.Println("%+v\n", update.Message)
+			if update.Message.Text == "/on" {
+				if on == update.Message.Chat.ID {
+					continue
+				}
+				on = update.Message.Chat.ID
+				file_msg[update.Message.Chat.ID] = call_on(&wg, bot, update.Message.Chat.ID)
+			} else if update.Message.Text == "/off" {
+				if on != update.Message.Chat.ID || off == update.Message.Chat.ID {
+					continue
+				}
+				off = update.Message.Chat.ID
+				call_off(&wg, bot, update.Message.Chat.ID, file_msg[update.Message.Chat.ID])
+			} else {
+				fmt.Println("wrong: %s", update.Message.Text)
+				fmt.Println("%+v", update.Message.From.ID)
 			}
-			on = update.Message.Chat.ID
-			file_msg = call_on(bot, update.Message.Chat.ID)
-		} else if update.Message.Text == "/off" {
-			if on != update.Message.Chat.ID || off == update.Message.Chat.ID {
-				continue
-			}
-			off = update.Message.Chat.ID
-			call_off(bot, update.Message.Chat.ID, file_msg)
 		} else {
-			fmt.Println("wrong: %s", update.Message.Text)
-			fmt.Println("%+v", update.Message.From.ID)
+			fmt.Println("%+v", config[fmt.Sprintf("%d", update.Message.Chat.ID)])
+			fmt.Println(fmt.Sprintf("%d", update.Message.Chat.ID))
+			fmt.Println(err)
 		}
 	}
+	wg.Wait()
 }
