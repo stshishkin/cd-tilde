@@ -225,4 +225,5 @@ func main() {
 		}
 	}
 	wg.Wait()
+	close(file_msg)
 }
