@@ -77,7 +77,7 @@ func cmd_handler(bot *tgbotapi.BotAPI, chat int64, msg int, cmd string) int {
 	}
 	return s
 }
-func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) int {
+func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg chan int) {
 	defer wg.Done()
 	from := fmt.Sprintf("%d", chat)
 	msg := tgbotapi.NewMessage(chat, "please, wait while kitty rolling. 🕛 1 roll")
@@ -107,12 +107,14 @@ func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) int {
 		time.Sleep(1 * time.Second)
 		s++
 	}
-	return c.MessageID
+
+	file_msg <- c.MessageID
 }
-func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg int) {
+func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg chan int) {
 	defer wg.Done()
 	from := fmt.Sprintf("%d", chat)
-	del := tgbotapi.NewDeleteMessage(chat, file_msg)
+	f_msg := <-file_msg
+	del := tgbotapi.NewDeleteMessage(chat, f_msg)
 	_, err := bot.Send(del)
 	if err != nil {
 		fmt.Println(err)
@@ -150,6 +152,7 @@ func main() {
 	key := os.Getenv("BOT_KEY")
 
 	var wg sync.WaitGroup
+	file_msg := make(chan int)
 
 	if token == "" || domain == "" || cert == "" || key == "" {
 		fmt.Println("Missing startup environment variable. Please note, you have to set up BOT_APITOKEN, BOT_DOMAIN, BOT_CERT and BOT_KEY. ")
@@ -190,7 +193,7 @@ func main() {
 	var on, off int64
 	on = 0
 	off = 0
-	file_msg := make(map[int64]int)
+
 	for update := range updates {
 		config, err := load_config()
 		if err != nil {
@@ -204,13 +207,13 @@ func main() {
 					continue
 				}
 				on = update.Message.Chat.ID
-				file_msg[update.Message.Chat.ID] = call_on(&wg, bot, update.Message.Chat.ID)
+				go call_on(&wg, bot, update.Message.Chat.ID, file_msg)
 			} else if update.Message.Text == "/off" {
 				if on != update.Message.Chat.ID || off == update.Message.Chat.ID {
 					continue
 				}
 				off = update.Message.Chat.ID
-				call_off(&wg, bot, update.Message.Chat.ID, file_msg[update.Message.Chat.ID])
+				go call_off(&wg, bot, update.Message.Chat.ID, file_msg)
 			} else {
 				fmt.Println("wrong: %s", update.Message.Text)
 				fmt.Println("%+v", update.Message.From.ID)
