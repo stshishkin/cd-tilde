@@ -17,7 +17,11 @@ import (
 
 var bot *tgbotapi.BotAPI
 var clocks = [12]string{"🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"}
-var s int
+var file_msg map[int64]int = make(map[int64]int)
+var tic map[int64]int = make(map[int64]int)
+var tic_msg map[int64]int = make(map[int64]int)
+var on map[int64]bool = make(map[int64]bool)
+var off map[int64]bool = make(map[int64]bool)
 
 func load_config() (map[string]interface{}, error) {
 	config := make(map[string]interface{})
@@ -62,7 +66,6 @@ func cmd_handler(bot *tgbotapi.BotAPI, chat int64, msg int, cmd string) int {
 		err = process.Signal(syscall.Signal(0))
 		if err != nil && err.Error() == "os: process already finished" {
 			fmt.Printf("process.Signal on pid %d returned: '%v'\n", cmd_exec.Process.Pid, err)
-			fmt.Printf("%d\n", msg)
 			break
 		} else {
 			msg1 := tgbotapi.NewEditMessageText(chat, msg, fmt.Sprintf("please, wait while kitty rolling. %s %d roll", clocks[s%len(clocks)], s))
@@ -77,7 +80,8 @@ func cmd_handler(bot *tgbotapi.BotAPI, chat int64, msg int, cmd string) int {
 	}
 	return s
 }
-func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg chan int) {
+
+func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
 	defer wg.Done()
 	from := fmt.Sprintf("%d", chat)
 	msg := tgbotapi.NewMessage(chat, "please, wait while kitty rolling. 🕛 1 roll")
@@ -108,17 +112,59 @@ func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg chan
 		s++
 	}
 
-	file_msg <- c.MessageID
+	tic[chat] = s
+	file_msg[chat] = c.MessageID
+	if err != nil {
+		go countdown(wg, bot, chat)
+	}
 }
-func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg chan int) {
+
+func countdown(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
+	defer wg.Done()
+
+	s := tic[chat]
+	msg := tgbotapi.NewMessage(chat, "VPN will working for 🕛")
+	m, err := bot.Send(msg)
+	if err != nil {
+		fmt.Println(err)
+	}
+	tic_msg[chat] = m.MessageID
+	s = 300 - s
+	for s > 0 {
+		msg1 := tgbotapi.NewEditMessageText(chat, m.MessageID, fmt.Sprintf("VPN will working for %s %02d:%02d", clocks[s%len(clocks)], s/60, s%60))
+
+		if _, err = bot.Send(msg1); err != nil {
+			fmt.Println(err)
+			break
+		}
+
+		time.Sleep(1 * time.Second)
+		s--
+	}
+	if s == 0 {
+		go call_off(wg, bot, chat)
+		on[chat] = false
+	}
+}
+
+func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
 	defer wg.Done()
 	from := fmt.Sprintf("%d", chat)
-	f_msg := <-file_msg
-	del := tgbotapi.NewDeleteMessage(chat, f_msg)
+
+	del := tgbotapi.NewDeleteMessage(chat, file_msg[chat])
 	_, err := bot.Send(del)
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	if tic_msg[chat] != 0 {
+		del = tgbotapi.NewDeleteMessage(chat, tic_msg[chat])
+		_, err = bot.Send(del)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
 	msg := tgbotapi.NewMessage(chat, "please, wait while kitty rolling. 🕛 1 roll")
 
 	m, err := bot.Send(msg)
@@ -143,7 +189,10 @@ func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, file_msg cha
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	off[chat] = false
 }
+
 func main() {
 	token := os.Getenv("BOT_APITOKEN")
 	domain := os.Getenv("BOT_DOMAIN")
@@ -152,7 +201,6 @@ func main() {
 	key := os.Getenv("BOT_KEY")
 
 	var wg sync.WaitGroup
-	file_msg := make(chan int)
 
 	if token == "" || domain == "" || cert == "" || key == "" {
 		fmt.Println("Missing startup environment variable. Please note, you have to set up BOT_APITOKEN, BOT_DOMAIN, BOT_CERT and BOT_KEY. ")
@@ -190,9 +238,6 @@ func main() {
 
 	updates := bot.ListenForWebhook("/" + token)
 	go http.ListenAndServeTLS("0.0.0.0:"+port, cert, key, nil)
-	var on, off int64
-	on = 0
-	off = 0
 
 	for update := range updates {
 		config, err := load_config()
@@ -203,17 +248,19 @@ func main() {
 		if _, err := config[fmt.Sprintf("%d", update.Message.Chat.ID)]; err {
 			fmt.Println("%+v\n", update.Message)
 			if update.Message.Text == "/on" {
-				if on == update.Message.Chat.ID {
+				if on[update.Message.Chat.ID] {
 					continue
 				}
-				on = update.Message.Chat.ID
-				go call_on(&wg, bot, update.Message.Chat.ID, file_msg)
+				on[update.Message.Chat.ID] = true
+				go call_on(&wg, bot, update.Message.Chat.ID)
+
 			} else if update.Message.Text == "/off" {
-				if on != update.Message.Chat.ID || off == update.Message.Chat.ID {
+				if off[update.Message.Chat.ID] || !on[update.Message.Chat.ID] {
 					continue
 				}
-				off = update.Message.Chat.ID
-				go call_off(&wg, bot, update.Message.Chat.ID, file_msg)
+				off[update.Message.Chat.ID] = true
+				go call_off(&wg, bot, update.Message.Chat.ID)
+
 			} else {
 				fmt.Println("wrong: %s", update.Message.Text)
 				fmt.Println("%+v", update.Message.From.ID)
@@ -225,5 +272,4 @@ func main() {
 		}
 	}
 	wg.Wait()
-	close(file_msg)
 }
