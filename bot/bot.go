@@ -23,8 +23,8 @@ var tic_msg map[int64]int = make(map[int64]int)
 var on map[int64]bool = make(map[int64]bool)
 var off map[int64]bool = make(map[int64]bool)
 
-func load_config() (map[string]interface{}, error) {
-	config := make(map[string]interface{})
+func load_config() (map[string]int, error) {
+	config := make(map[string]int)
 	config_file, err := os.Open("config.json")
 	defer config_file.Close()
 	if err != nil {
@@ -81,7 +81,7 @@ func cmd_handler(bot *tgbotapi.BotAPI, chat int64, msg int, cmd string) int {
 	return s
 }
 
-func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
+func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, t int) {
 	defer wg.Done()
 	from := fmt.Sprintf("%d", chat)
 	msg := tgbotapi.NewMessage(chat, "please, wait while kitty rolling. 🕛 1 roll")
@@ -115,11 +115,11 @@ func call_on(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
 	tic[chat] = s
 	file_msg[chat] = c.MessageID
 	if err != nil {
-		go countdown(wg, bot, chat)
+		go countdown(wg, bot, chat, t)
 	}
 }
 
-func countdown(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
+func countdown(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, t int) {
 	defer wg.Done()
 
 	s := tic[chat]
@@ -129,7 +129,7 @@ func countdown(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
 		fmt.Println(err)
 	}
 	tic_msg[chat] = m.MessageID
-	s = 300 - s
+	s = t - s
 	for s > 0 {
 		msg1 := tgbotapi.NewEditMessageText(chat, m.MessageID, fmt.Sprintf("VPN will working for %s %02d:%02d", clocks[s%len(clocks)], s/60, s%60))
 
@@ -216,9 +216,9 @@ func main() {
 		fmt.Println(err)
 	}
 
-	bot.Debug = true
+	// bot.Debug = true
 
-	fmt.Println("Authorized on account %s", bot.Self.UserName)
+	fmt.Printf("Authorized on account %s\n", bot.Self.UserName)
 
 	wh, _ := tgbotapi.NewWebhook("https://" + domain + ":" + port + "/" + token)
 
@@ -233,7 +233,7 @@ func main() {
 	}
 
 	if info.LastErrorDate != 0 {
-		fmt.Println("Telegram callback failed: %s", info.LastErrorMessage)
+		fmt.Printf("Telegram callback failed: %s\n", info.LastErrorMessage)
 	}
 
 	updates := bot.ListenForWebhook("/" + token)
@@ -245,14 +245,17 @@ func main() {
 			fmt.Println(err)
 		}
 		wg.Add(len(config))
-		if _, err := config[fmt.Sprintf("%d", update.Message.Chat.ID)]; err {
-			fmt.Println("%+v\n", update.Message)
+		if time, err := config[fmt.Sprintf("%d", update.Message.Chat.ID)]; err {
+			fmt.Printf("%+v\n", update.Message)
 			if update.Message.Text == "/on" {
 				if on[update.Message.Chat.ID] {
 					continue
 				}
 				on[update.Message.Chat.ID] = true
-				go call_on(&wg, bot, update.Message.Chat.ID)
+				if time < 0 {
+					time = 300
+				}
+				go call_on(&wg, bot, update.Message.Chat.ID, time)
 
 			} else if update.Message.Text == "/off" {
 				if off[update.Message.Chat.ID] || !on[update.Message.Chat.ID] {
@@ -262,12 +265,12 @@ func main() {
 				go call_off(&wg, bot, update.Message.Chat.ID)
 
 			} else {
-				fmt.Println("wrong: %s", update.Message.Text)
-				fmt.Println("%+v", update.Message.From.ID)
+				fmt.Printf("wrong: %s\n", update.Message.Text)
+				fmt.Printf("%+v\n", update.Message.From.ID)
 			}
 		} else {
-			fmt.Println("%+v", config[fmt.Sprintf("%d", update.Message.Chat.ID)])
-			fmt.Println(fmt.Sprintf("%d", update.Message.Chat.ID))
+			fmt.Printf("%+v\n", config[fmt.Sprintf("%d", update.Message.Chat.ID)])
+			fmt.Printf("%d\n", update.Message.Chat.ID)
 			fmt.Println(err)
 		}
 	}

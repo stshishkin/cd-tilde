@@ -15,9 +15,21 @@ selectel-api-token = "AbCdEfGhIjKlMnOpQrStUvWxYz012345" # API Key (creates in Se
 telegram-bot-token = "123456789:AbCdEfGhIjKlMnOpQrStUvWxYz012345678" # bot token 
 ```
 3. Run `terraform init` to initialize terraform providers
-4. Specify your telegram bot token and your public domain which has generated HTTPS certificate in bot/bot.go
+4. Generate or copy existing certificate in bot/ folder. Please note, that you should use fullchain certificate for the embedded web server.
+5. Specify your telegram bot token, your public domain for which has generated HTTPS certificate, filenames of certificate keypair and public available port in environment variables.
 ```bash
-sed -i "s/YOUR_SECRET_TOKEN/123456789:AbCdEfGhIjKlMnOpQrStUvWxYz012345678/;s/your-public-domain/example.com/" bot/bot.go
+export BOT_PORT=8443
+export BOT_DOMAIN=example.com
+export BOT_APITOKEN=123456789:AbCdEfGhIjKlMnOpQrStUvWxYz012345678
+export BOT_KEY=privkey.pem
+export BOT_CERT=fullchain.pem
 ```
-5. Generate or copy existing certificate in bot/ folder. Please note, that you should use fullchain certificate for the embedded web server.
-8. Run `go run .` from bot/ directory
+6. Specify the ids of telegram users which allowed to use this bot in bot/config.json file in the following format:
+"user_id": allowed_duration_in_seconds. default value 300 seconds if the value is negative.
+```json
+{
+    "234567890": 3600,
+    "345678901": -1
+}
+```
+7. Run `go run .` from bot/ directory
