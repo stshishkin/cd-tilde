@@ -193,6 +193,25 @@ func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
 	off[chat] = false
 }
 
+func start(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, time int) {
+	defer wg.Done()
+	text := `This bot creates a temporary Russian VPN server for you for %02d:%02d minutes.
+Use it with caution, cause it's in Russian jurisdiction. 
+Welcome back home, son.
+
+I know these commands:
+
+/start /help - shows this message
+/on - creates VPN server. Please note that creating a real server may take 1-2 minutes.
+/off - destroys your VPN server. It will be destroyed after timeout anyway.`
+
+	msg := tgbotapi.NewMessage(chat, fmt.Sprintf(text, time/60, time%60))
+	_, err := bot.Send(msg)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
 func main() {
 	token := os.Getenv("BOT_APITOKEN")
 	domain := os.Getenv("BOT_DOMAIN")
@@ -247,7 +266,9 @@ func main() {
 		wg.Add(len(config))
 		if time, err := config[fmt.Sprintf("%d", update.Message.Chat.ID)]; err {
 			fmt.Printf("%+v\n", update.Message)
-			if update.Message.Text == "/on" {
+			if update.Message.Text == "/start" || update.Message.Text == "/help" {
+				start(&wg, bot, update.Message.Chat.ID, time)
+			} else if update.Message.Text == "/on" {
 				if on[update.Message.Chat.ID] {
 					continue
 				}
