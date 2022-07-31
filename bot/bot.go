@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -17,9 +18,11 @@ import (
 
 var bot *tgbotapi.BotAPI
 var clocks = [12]string{"🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"}
+var owner_id int64
 var file_msg map[int64]int = make(map[int64]int)
 var tic map[int64]int = make(map[int64]int)
 var tic_msg map[int64]int = make(map[int64]int)
+var value map[int64]int = make(map[int64]int)
 var on map[int64]bool = make(map[int64]bool)
 var off map[int64]bool = make(map[int64]bool)
 
@@ -34,6 +37,7 @@ func load_config() (map[string]int, error) {
 	err = json.Unmarshal(byteValue, &config)
 	return config, err
 }
+
 func cmd_handler(bot *tgbotapi.BotAPI, chat int64, msg int, cmd string) int {
 
 	s := 1
@@ -123,7 +127,7 @@ func countdown(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, t int) {
 	defer wg.Done()
 
 	s := tic[chat]
-	msg := tgbotapi.NewMessage(chat, "VPN will working for 🕛")
+	msg := tgbotapi.NewMessage(chat, fmt.Sprintf("VPN will working for 🕛 %02d:%02d", t/60, t%60))
 	m, err := bot.Send(msg)
 	if err != nil {
 		fmt.Println(err)
@@ -193,19 +197,33 @@ func call_off(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64) {
 	off[chat] = false
 }
 
-func start(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, time int) {
+func start(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, time int, allow bool, request string) {
 	defer wg.Done()
-	text := `This bot creates a temporary Russian VPN server for you for %02d:%02d minutes.
+	var text string
+	if allow {
+		text = `This bot creates a temporary Russian standalone VPN server for you for %02d:%02d minutes and gives a .ovpn file for OpenVPN compatible clients.
 Use it with caution, cause it's in Russian jurisdiction. 
-Welcome back home, son.
 
 I know these commands:
 
 /start /help - shows this message
 /on - creates VPN server. Please note that creating a real server may take 1-2 minutes.
-/off - destroys your VPN server. It will be destroyed after timeout anyway.`
+/off - destroys your VPN server. It will be destroyed after timeout anyway.
 
-	msg := tgbotapi.NewMessage(chat, fmt.Sprintf(text, time/60, time%60))
+Welcome back home, son.`
+		text = fmt.Sprintf(text, time/60, time%60)
+	} else {
+		text = `Hi stranger. This is a private bot.
+The owner will allow your access if it's necessary.`
+
+		msg := tgbotapi.NewMessage(int64(100166704), request)
+		_, err := bot.Send(msg)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	msg := tgbotapi.NewMessage(chat, text)
 	_, err := bot.Send(msg)
 	if err != nil {
 		fmt.Println(err)
@@ -218,11 +236,13 @@ func main() {
 	port := os.Getenv("BOT_PORT")
 	cert := os.Getenv("BOT_CERT")
 	key := os.Getenv("BOT_KEY")
+	owner := os.Getenv("BOT_OWNER")
 
 	var wg sync.WaitGroup
+	var err error
 
-	if token == "" || domain == "" || cert == "" || key == "" {
-		fmt.Println("Missing startup environment variable. Please note, you have to set up BOT_APITOKEN, BOT_DOMAIN, BOT_CERT and BOT_KEY. ")
+	if token == "" || domain == "" || cert == "" || key == "" || owner == "" {
+		fmt.Println("Missing startup environment variable. Please note, you have to set up BOT_APITOKEN, BOT_DOMAIN, BOT_CERT, BOT_KEY and BOT_OWNER. ")
 		os.Exit(1)
 	}
 
@@ -230,7 +250,27 @@ func main() {
 		port = "8443"
 	}
 
-	bot, err := tgbotapi.NewBotAPI(token)
+	if _, err = os.Stat(cert); err != nil {
+		fmt.Println("Missing file in BOT_CERT environment variable.")
+		os.Exit(1)
+	}
+
+	if _, err = os.Stat(key); err != nil {
+		fmt.Println("Missing file in BOT_KEY environment variable.")
+		os.Exit(1)
+	}
+
+	if _, err = os.Stat("config.json"); err != nil {
+		fmt.Println("Missing config.json file in bot folder.")
+		os.Exit(1)
+	}
+
+	if owner_id, err = strconv.ParseInt(owner, 10, 64); err != nil {
+		fmt.Println("BOT_OWNER variable should contain a valid id of telegram user")
+		os.Exit(1)
+	}
+
+	bot, err = tgbotapi.NewBotAPI(token)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -264,19 +304,20 @@ func main() {
 			fmt.Println(err)
 		}
 		wg.Add(len(config))
-		if time, err := config[fmt.Sprintf("%d", update.Message.Chat.ID)]; err {
+		if temp, err := config[fmt.Sprintf("%d", update.Message.Chat.ID)]; err {
+			value[update.Message.Chat.ID] = temp
 			fmt.Printf("%+v\n", update.Message)
+			if value[update.Message.Chat.ID] < 0 {
+				value[update.Message.Chat.ID] = 600
+			}
 			if update.Message.Text == "/start" || update.Message.Text == "/help" {
-				start(&wg, bot, update.Message.Chat.ID, time)
+				start(&wg, bot, update.Message.Chat.ID, value[update.Message.Chat.ID], true, "")
 			} else if update.Message.Text == "/on" {
 				if on[update.Message.Chat.ID] {
 					continue
 				}
 				on[update.Message.Chat.ID] = true
-				if time < 0 {
-					time = 300
-				}
-				go call_on(&wg, bot, update.Message.Chat.ID, time)
+				go call_on(&wg, bot, update.Message.Chat.ID, value[update.Message.Chat.ID])
 
 			} else if update.Message.Text == "/off" {
 				if off[update.Message.Chat.ID] || !on[update.Message.Chat.ID] {
@@ -293,6 +334,9 @@ func main() {
 			fmt.Printf("%+v\n", config[fmt.Sprintf("%d", update.Message.Chat.ID)])
 			fmt.Printf("%d\n", update.Message.Chat.ID)
 			fmt.Println(err)
+			if update.Message.Text == "/start" {
+				start(&wg, bot, update.Message.Chat.ID, value[update.Message.Chat.ID], false, fmt.Sprintf("%s(@%s) %d", update.Message.Chat.FirstName, update.Message.Chat.UserName, update.Message.Chat.ID))
+			}
 		}
 	}
 	wg.Wait()
