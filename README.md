@@ -16,16 +16,17 @@ telegram-bot-token = "123456789:AbCdEfGhIjKlMnOpQrStUvWxYz012345678" # bot token
 ```
 3. Run `terraform init` to initialize terraform providers
 4. Generate or copy existing certificate in bot/ folder. Please note, that you should use fullchain certificate for the embedded web server.
-5. Specify your telegram bot token, your public domain for which has generated HTTPS certificate, filenames of certificate keypair and public available port in environment variables.
+5. Specify your telegram bot token, your public domain for which has generated HTTPS certificate, filenames of certificate keypair, public available port and telegram id of bot admin in environment variables.
 ```bash
 export BOT_PORT=8443
 export BOT_DOMAIN=example.com
 export BOT_APITOKEN=123456789:AbCdEfGhIjKlMnOpQrStUvWxYz012345678
 export BOT_KEY=privkey.pem
 export BOT_CERT=fullchain.pem
+export BOT_OWNER=012345678
 ```
 6. Specify the ids of telegram users which allowed to use this bot in bot/config.json file in the following format:
-"user_id": allowed_duration_in_seconds. default value 300 seconds if the value is negative.
+"user_id": allowed_duration_in_seconds. default value 600 seconds if the value is negative. When a new user who was not specified in config.json use /start command of this bot, the bot admin receives a message with first name, username and user id of a new one. You can add it by hand or ignore the message.
 ```json
 {
     "234567890": 3600,
