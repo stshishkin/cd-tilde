@@ -139,7 +139,7 @@ func countdown(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, t int) {
 	defer wg.Done()
 
 	s := tic[chat]
-	msg := tgbotapi.NewMessage(chat, fmt.Sprintf("VPN will working for 🕛 %02d:%02d", t/60, t%60))
+	msg := tgbotapi.NewMessage(chat, fmt.Sprintf("VPN will be working for 🕛 %02d:%02d", t/60, t%60))
 	m, err := bot.Send(msg)
 	if err != nil {
 		fmt.Println(err)
@@ -147,7 +147,7 @@ func countdown(wg *sync.WaitGroup, bot *tgbotapi.BotAPI, chat int64, t int) {
 	tic_msg[chat] = m.MessageID
 	s = t - s
 	for s > 0 {
-		msg1 := tgbotapi.NewEditMessageText(chat, m.MessageID, fmt.Sprintf("VPN will working for %s %02d:%02d", clocks[s%len(clocks)], s/60, s%60))
+		msg1 := tgbotapi.NewEditMessageText(chat, m.MessageID, fmt.Sprintf("VPN will be working for %s %02d:%02d", clocks[s%len(clocks)], s/60, s%60))
 
 		if _, err = bot.Send(msg1); err != nil {
 			fmt.Println(err)
