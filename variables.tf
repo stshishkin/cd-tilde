@@ -1,13 +1,13 @@
 variable "region" {
-  default = "ru-3"
+  default = "ru-1"
 }
 
 variable "az_zone" {
-  default = "ru-3b"
+  default = "ru-1b"
 }
 
 variable "volume_type" {
-  default = "basic.ru-3b"
+  default = "basic.ru-1b"
 }
 
 variable "subnet_cidr" {
